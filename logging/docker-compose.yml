@@ -1,0 +1,83 @@
+version: "3.4"
+
+services:
+  my-nginx-service:
+    image: nginx
+    container_name: my-nginx-service
+    ports:
+      - 8000:80
+    environment:
+      - FOO=bar
+    logging:
+      driver: loki
+      options:
+        loki-url: http://localhost:3100/loki/api/v1/push
+        loki-external-labels: job=dockerlogs,owner=ruan,environment=development
+
+  logger-app:
+    image: ctovena/logger:0.12
+    container_name: logger
+    logging:
+      driver: loki
+      options:
+        loki-url: http://localhost:3100/loki/api/v1/push
+        loki-external-labels: job=dockerlogs,owner=ruan,environment=development
+        
+  mon_node-exporter:
+    image: prom/node-exporter:latest
+    container_name: mon_node-exporter
+    restart: always
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.ignored-mount-points="^(/rootfs|/host|)/(sys|proc|dev|host|etc)($$|/)"'
+      - '--collector.filesystem.ignored-fs-types="^(sys|proc|auto|cgroup|devpts|ns|au|fuse\.lxc|mqueue)(fs|)$$"'
+
+  grafana:
+    image: grafana/grafana:7.2.2
+    container_name: grafana
+    volumes:
+    - ./config/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+    depends_on:
+    - prometheus
+    ports:
+    - "3000:3000"
+
+  loki:
+   image: grafana/loki:2.0.0
+   container_name: loki
+   volumes:
+     - ./config/loki.yaml:/etc/config/loki.yaml
+   entrypoint:
+     - /usr/bin/loki
+     - -config.file=/etc/config/loki.yaml
+   ports:
+     - "3100:3100"
+     
+  cadvisor:
+    image: google/cadvisor:v0.33.0
+    volumes:
+        - /:/rootfs:ro
+        - /var/run:/var/run:ro
+        - /sys:/sys:ro
+        - /var/lib/docker/:/var/lib/docker:ro
+        - /dev/disk/:/dev/disk:ro
+
+  prometheus:
+    image: prom/prometheus:v2.7.1
+    ports:
+        - "9090:9090"
+    volumes:
+        - ./prometheus:/app.cfg
+    command: >-
+        --config.file=/app.cfg/prometheus.yml
+        --storage.tsdb.path=/prometheus
+        --web.console.libraries=/usr/share/prometheus/console_libraries
+        --web.console.templates=/usr/share/prometheus/consoles
